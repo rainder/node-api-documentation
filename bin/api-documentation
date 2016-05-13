@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+"use strict";
+
+const commander = require('commander');
+const co = require('co');
+const path = require('path');
+const util = require('util');
+const fs = require('fs');
+
+const fileScanner = require('./../lib/file-scanner');
+const commentsParser = require('./../lib/comments-parser');
+
+commander
+  .arguments('<config>')
+  .action(wrap(main));
+
+commander.parse(process.argv);
+
+function *main(configFile) {
+  configFile = path.resolve(configFile);
+  const configDir = path.dirname(configFile);
+  const config = require(configFile);
+
+  process.chdir(configDir);
+
+  const DIRS = config.dirs;
+
+  const allFiles = yield fileScanner.scan(DIRS);
+  const filteredFiles = allFiles.filter(s => /.js$/.test(s))
+  const fileData = yield fileScanner.readAll(filteredFiles);
+
+  fileData.forEach(function (item) {
+    let file = item.file;
+    DIRS.forEach(dir => file = file.replace(dir, ''));
+    item.metadata = { file };
+  });
+
+  const data = commentsParser.parse(fileData);
+
+  if (config.output) {
+    yield cb => fs.writeFile(config.output, JSON.stringify(data, 0, 2), cb);
+  } else {
+    console.log(JSON.stringify(data, 0, 2));
+  }
+
+}
+
+function wrap(fn) {
+  return function (...args) {
+    return co(fn(...args)).catch(e => console.error(e));
+  }
+}
